@@ -1,4 +1,4 @@
-/** 
+/**
 Go-Guerrilla SMTPd
 A minimalist SMTP server written in Go, made for receiving large volumes of mail.
 Works either as a stand-alone or in conjunction with Nginx SMTP proxy.
@@ -45,7 +45,7 @@ $ go get github.com/ziutek/mymysql/autorc
 $ go get github.com/ziutek/mymysql/godrv
 $ go get github.com/sloonz/go-iconv
 
-TODO: after failing tls, 
+TODO: after failing tls,
 
 patch:
 rebuild all: go build -a -v new.go
@@ -57,11 +57,13 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"code.google.com/p/goprotobuf/proto"
 	"compress/zlib"
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -70,6 +72,7 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"github.com/sloonz/go-iconv"
 	"github.com/sloonz/go-qprintable"
+	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/ziutek/mymysql/autorc"
 	_ "github.com/ziutek/mymysql/godrv"
 	"io"
@@ -78,6 +81,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"os/user"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -104,6 +109,7 @@ type Client struct {
 	kill_time   int64
 	errors      int
 	clientId    int64
+	emails_id    uint64
 	savedNotify chan int
 }
 
@@ -112,30 +118,38 @@ var max_size int // max email DATA size
 var timeout time.Duration
 var allowedHosts = make(map[string]bool, 15)
 var sem chan int // currently active clients
+var emails_db *leveldb.DB
+var emails_id uint64
 
 var SaveMailChan chan *Client // workers for saving mail
 // defaults. Overwrite any of these in the configure() function which loads them from a json file
-var gConfig = map[string]string{
-	"GSMTP_MAX_SIZE":         "131072",
-	"GSMTP_HOST_NAME":        "server.example.com", // This should also be set to reflect your RDNS
-	"GSMTP_VERBOSE":          "Y",
-	"GSMTP_LOG_FILE":         "",    // Eg. /var/log/goguerrilla.log or leave blank if no logging
-	"GSMTP_TIMEOUT":          "100", // how many seconds before timeout.
-	"MYSQL_HOST":             "127.0.0.1:3306",
-	"MYSQL_USER":             "gmail_mail",
-	"MYSQL_PASS":             "ok",
-	"MYSQL_DB":               "gmail_mail",
-	"GM_MAIL_TABLE":          "new_mail",
-	"GSTMP_LISTEN_INTERFACE": "0.0.0.0:25",
-	"GSMTP_PUB_KEY":          "/etc/ssl/certs/ssl-cert-snakeoil.pem",
-	"GSMTP_PRV_KEY":          "/etc/ssl/private/ssl-cert-snakeoil.key",
-	"GM_ALLOWED_HOSTS":       "guerrillamail.de,guerrillamailblock.com",
-	"GM_PRIMARY_MAIL_HOST":   "guerrillamail.com",
-	"GM_MAX_CLIENTS":         "500",
-	"NGINX_AUTH_ENABLED":     "N",              // Y or N
-	"NGINX_AUTH":             "127.0.0.1:8025", // If using Nginx proxy, ip and port to serve Auth requsts
-	"SGID":                   "1008",           // group id
-	"SUID":                   "1008",           // user id, from /etc/passwd
+var gConfig map[string]string
+
+func init() {
+	usr, _ := user.Current()
+	gConfig = map[string]string{
+		"GSMTP_MAX_SIZE":         "131072",
+		"GSMTP_HOST_NAME":        "server.example.com", // This should also be set to reflect your RDNS
+		"GSMTP_VERBOSE":          "Y",
+		"GSMTP_LOG_FILE":         "",    // Eg. /var/log/goguerrilla.log or leave blank if no logging
+		"GSMTP_TIMEOUT":          "100", // how many seconds before timeout.
+		"MYSQL_HOST":             "127.0.0.1:3306",
+		"MYSQL_USER":             "gmail_mail",
+		"MYSQL_PASS":             "ok",
+		"MYSQL_DB":               "gmail_mail",
+		"GM_MAIL_TABLE":          "new_mail",
+		"GSTMP_LISTEN_INTERFACE": "0.0.0.0:25",
+		"GSMTP_PUB_KEY":          usr.HomeDir + "/.go-guerrilla/ssl-cert.pem",
+		"GSMTP_PRV_KEY":          usr.HomeDir + "/.go-guerrilla/ssl-cert.key",
+		"GM_ALLOWED_HOSTS":       "guerrillamail.de,guerrillamailblock.com",
+		"GM_PRIMARY_MAIL_HOST":   "guerrillamail.com",
+		"GM_MAX_CLIENTS":         "500",
+		"NGINX_AUTH_ENABLED":     "N",              // Y or N
+		"NGINX_AUTH":             "127.0.0.1:8025", // If using Nginx proxy, ip and port to serve Auth requsts
+		"SGID":                   "1008",           // group id
+		"SUID":                   "1008",           // user id, from /etc/passwd
+		"LEVELDB":		  "N",		    // Y or N
+	}
 }
 
 type redisClient struct {
@@ -159,12 +173,22 @@ func logln(level int, s string) {
 
 func configure() {
 	var configFile, verbose, iface string
+	usr, _ := user.Current()
 	log.SetOutput(os.Stdout)
 	// parse command line arguments
 	flag.StringVar(&configFile, "config", "goguerrilla.conf", "Path to the configuration file")
 	flag.StringVar(&verbose, "v", "n", "Verbose, [y | n] ")
 	flag.StringVar(&iface, "if", "", "Interface and port to listen on, eg. 127.0.0.1:2525 ")
 	flag.Parse()
+
+	if _, err := os.Stat(usr.HomeDir + "/.go-guerrilla"); os.IsNotExist(err) {
+		os.Mkdir(usr.HomeDir + "/.go-guerrilla", os.FileMode(0700))
+	}
+
+	if _, err := os.Stat(gConfig["GSMTP_PRV_KEY"]); os.IsNotExist(err) {
+		//http://golang.org/src/pkg/crypto/tls/generate_cert.go
+	}
+
 	// load in the config.
 	b, err := ioutil.ReadFile(configFile)
 	if err != nil {
@@ -217,6 +241,29 @@ func configure() {
 		log.SetOutput(logfile)
 	}
 
+	if gConfig["LEVELDB"] == "Y" {
+		db, err := leveldb.OpenFile(usr.HomeDir + "/.go-guerrilla/email.db", nil)
+		if err != nil {
+			log.Fatalln("Could not open leveldb")
+		}
+
+		iter := db.NewIterator(nil)
+		for iter.Next() {
+			emails_id++
+		}
+
+		emails_db = db
+
+		close_signal := make(chan os.Signal, 1)
+		signal.Notify(close_signal, os.Interrupt, os.Kill)
+		go func() {
+			for _ = range close_signal {
+				emails_db.Close()
+				os.Exit(0)
+			}
+		}()
+	}
+
 	return
 }
 
@@ -230,7 +277,11 @@ func main() {
 	TLSconfig.Rand = rand.Reader
 	// start some savemail workers
 	for i := 0; i < 3; i++ {
-		go saveMail()
+		if gConfig["LEVELDB"] == "Y" {
+			go saveMailLevelDB()
+		} else {
+			go saveMail()
+		}
 	}
 	if gConfig["NGINX_AUTH_ENABLED"] == "Y" {
 		go nginxHTTPAuth()
@@ -244,6 +295,9 @@ func main() {
 	}
 	var clientId int64
 	clientId = 1
+
+	go start_mail_server()
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -260,7 +314,9 @@ func main() {
 			bufout:      bufio.NewWriter(conn),
 			clientId:    clientId,
 			savedNotify: make(chan int),
+			emails_id: emails_id,
 		})
+		emails_id++
 		clientId++
 	}
 }
@@ -466,6 +522,40 @@ func responseWrite(client *Client) (err error) {
 	client.bufout.Flush()
 	client.response = client.response[size:]
 	return err
+}
+
+func saveMailLevelDB() {
+	var to string
+	buffer := proto.NewBuffer(nil)
+	id := make([]byte, 8)
+
+	for {
+		client := <-SaveMailChan
+		if user, _, addr_err := validateEmailData(client); addr_err != nil { // user, host, addr_err
+			logln(1, fmt.Sprintln("mail_from didnt validate: %v", addr_err)+" client.mail_from:"+client.mail_from)
+			// notify client that a save completed, -1 = error
+			client.savedNotify <- -1
+			continue
+		} else {
+			to = user + "@" + gConfig["GM_PRIMARY_MAIL_HOST"]
+		}
+
+		buffer.Marshal(&Email{
+			Id: proto.Uint64(client.emails_id),
+			Date: proto.Uint64(uint64(client.time)),
+			To: proto.String(to),
+			From: proto.String(client.mail_from),
+			Subject: proto.String(client.subject),
+			Mail: proto.String(client.data),
+			Address: proto.String(client.address),
+		})
+		binary.LittleEndian.PutUint64(id, client.emails_id)
+		err := emails_db.Put(id, buffer.Bytes(), nil)
+		if err != nil {
+			logln(1, fmt.Sprintf("Error writing to emails LevelDB: %v", err))
+		}
+		buffer.Reset()
+	}
 }
 
 func saveMail() {

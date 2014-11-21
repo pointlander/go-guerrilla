@@ -1,0 +1,11 @@
+package main;
+
+message email {
+	required uint64 id = 1;
+	required uint64 date = 2;
+	required string to = 3;
+	required string from = 4;
+	required string subject = 5;
+	required string mail = 6;
+	required string address = 7;
+}

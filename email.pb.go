@@ -24,55 +24,55 @@ type Email struct {
 	XXX_unrecognized []byte  `json:"-"`
 }
 
-func (m *Email) Reset()         { *m = Email{} }
-func (m *Email) String() string { return proto.CompactTextString(m) }
-func (*Email) ProtoMessage()    {}
+func (this *Email) Reset()         { *this = Email{} }
+func (this *Email) String() string { return proto.CompactTextString(this) }
+func (*Email) ProtoMessage()       {}
 
-func (m *Email) GetId() uint64 {
-	if m != nil && m.Id != nil {
-		return *m.Id
+func (this *Email) GetId() uint64 {
+	if this != nil && this.Id != nil {
+		return *this.Id
 	}
 	return 0
 }
 
-func (m *Email) GetDate() uint64 {
-	if m != nil && m.Date != nil {
-		return *m.Date
+func (this *Email) GetDate() uint64 {
+	if this != nil && this.Date != nil {
+		return *this.Date
 	}
 	return 0
 }
 
-func (m *Email) GetTo() string {
-	if m != nil && m.To != nil {
-		return *m.To
+func (this *Email) GetTo() string {
+	if this != nil && this.To != nil {
+		return *this.To
 	}
 	return ""
 }
 
-func (m *Email) GetFrom() string {
-	if m != nil && m.From != nil {
-		return *m.From
+func (this *Email) GetFrom() string {
+	if this != nil && this.From != nil {
+		return *this.From
 	}
 	return ""
 }
 
-func (m *Email) GetSubject() string {
-	if m != nil && m.Subject != nil {
-		return *m.Subject
+func (this *Email) GetSubject() string {
+	if this != nil && this.Subject != nil {
+		return *this.Subject
 	}
 	return ""
 }
 
-func (m *Email) GetMail() string {
-	if m != nil && m.Mail != nil {
-		return *m.Mail
+func (this *Email) GetMail() string {
+	if this != nil && this.Mail != nil {
+		return *this.Mail
 	}
 	return ""
 }
 
-func (m *Email) GetAddress() string {
-	if m != nil && m.Address != nil {
-		return *m.Address
+func (this *Email) GetAddress() string {
+	if this != nil && this.Address != nil {
+		return *this.Address
 	}
 	return ""
 }

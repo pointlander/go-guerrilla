@@ -61,11 +61,15 @@ import (
 	"compress/zlib"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -78,6 +82,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -109,7 +114,7 @@ type Client struct {
 	kill_time   int64
 	errors      int
 	clientId    int64
-	emails_id    uint64
+	emails_id   uint64
 	savedNotify chan int
 }
 
@@ -171,6 +176,15 @@ func logln(level int, s string) {
 	}
 }
 
+func update_email_count(emails_id uint64) {
+	email_count := make([]byte, 8)
+	binary.LittleEndian.PutUint64(email_count, emails_id)
+	err := emails_db.Put([]byte("email_count"), email_count, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func configure() {
 	var configFile, verbose, iface string
 	usr, _ := user.Current()
@@ -183,10 +197,6 @@ func configure() {
 
 	if _, err := os.Stat(usr.HomeDir + "/.go-guerrilla"); os.IsNotExist(err) {
 		os.Mkdir(usr.HomeDir + "/.go-guerrilla", os.FileMode(0700))
-	}
-
-	if _, err := os.Stat(gConfig["GSMTP_PRV_KEY"]); os.IsNotExist(err) {
-		//http://golang.org/src/pkg/crypto/tls/generate_cert.go
 	}
 
 	// load in the config.
@@ -246,13 +256,15 @@ func configure() {
 		if err != nil {
 			log.Fatalln("Could not open leveldb")
 		}
-
-		iter := db.NewIterator(nil)
-		for iter.Next() {
-			emails_id++
-		}
-
 		emails_db = db
+
+		data, err := db.Get([]byte("email_count"), nil)
+		if err != nil {
+			update_email_count(0)
+			emails_id = 0
+		} else {
+			emails_id = binary.LittleEndian.Uint64(data)
+		}
 
 		close_signal := make(chan os.Signal, 1)
 		signal.Notify(close_signal, os.Interrupt, os.Kill)
@@ -262,6 +274,65 @@ func configure() {
 				os.Exit(0)
 			}
 		}()
+	}
+
+	if _, err := os.Stat(gConfig["GSMTP_PRV_KEY"]); os.IsNotExist(err) {
+		//http://golang.org/src/pkg/crypto/tls/generate_cert.go
+		private, err := rsa.GenerateKey(rand.Reader, 1024)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		before := time.Now()
+		after := before.Add(10 * 365 * 24 * time.Hour)
+
+		serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+		serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+		if err != nil {
+			log.Fatalf("failed to generate serial number: %s", err)
+		}
+
+		template := x509.Certificate{
+			SerialNumber: serialNumber,
+			Subject: pkix.Name{
+				Organization: []string{"Acme Co"},
+			},
+			NotBefore: before,
+			NotAfter: after,
+			KeyUsage: x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			BasicConstraintsValid: true,
+		}
+
+		for h, _ := range allowedHosts {
+			if ip := net.ParseIP(h); ip != nil {
+				template.IPAddresses = append(template.IPAddresses, ip)
+			} else {
+				template.DNSNames = append(template.DNSNames, h)
+			}
+		}
+
+		template.IsCA = true
+		template.KeyUsage |= x509.KeyUsageCertSign
+
+		derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &private.PublicKey, private)
+		if err != nil {
+			log.Fatalf("Failed to create certificate: %s", err)
+		}
+
+		certOut, err := os.Create(gConfig["GSMTP_PUB_KEY"])
+		if err != nil {
+			log.Fatalf("failed to open %v for writing: %s", gConfig["GSMTP_PUB_KEY"], err)
+		}
+		pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+		certOut.Close()
+
+		keyOut, err := os.OpenFile(gConfig["GSMTP_PRV_KEY"], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			log.Print("failed to open %v for writing:", gConfig["GSMTP_PRV_KEY"], err)
+		}
+		pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(private)})
+		keyOut.Close()
 	}
 
 	return
@@ -317,6 +388,7 @@ func main() {
 			emails_id: emails_id,
 		})
 		emails_id++
+		update_email_count(emails_id)
 		clientId++
 	}
 }
@@ -527,7 +599,6 @@ func responseWrite(client *Client) (err error) {
 func saveMailLevelDB() {
 	var to string
 	buffer := proto.NewBuffer(nil)
-	id := make([]byte, 8)
 
 	for {
 		client := <-SaveMailChan
@@ -549,8 +620,7 @@ func saveMailLevelDB() {
 			Mail: proto.String(client.data),
 			Address: proto.String(client.address),
 		})
-		binary.LittleEndian.PutUint64(id, client.emails_id)
-		err := emails_db.Put(id, buffer.Bytes(), nil)
+		err := emails_db.Put([]byte(fmt.Sprintf("email_%v", client.emails_id)), buffer.Bytes(), nil)
 		if err != nil {
 			logln(1, fmt.Sprintf("Error writing to emails LevelDB: %v", err))
 		}

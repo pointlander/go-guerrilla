@@ -20,7 +20,36 @@ func (m *MailServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Println(request)
 
 	switch true {
-	case request == "/login":
+	case request == "/public_key":
+		public_key, err := emails_db.Get([]byte("email_public_key"), nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+		w.Write(public_key)
+	case request == "/private_key":
+		pin, err := emails_db.Get([]byte("email_private_key_pin"), nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if ipin := r.FormValue("pin"); ipin == string(pin) {
+			private_key, err := emails_db.Get([]byte("email_private_key"), nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+			w.Write(private_key)
+
+			err = emails_db.Delete([]byte("email_private_key_pin"), nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+			err = emails_db.Delete([]byte("email_private_key"), nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}

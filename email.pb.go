@@ -77,5 +77,70 @@ func (this *Email) GetAddress() string {
 	return ""
 }
 
+type Encrypted struct {
+	Key              []byte `protobuf:"bytes,1,req,name=key" json:"key,omitempty"`
+	Data             []byte `protobuf:"bytes,2,req,name=data" json:"data,omitempty"`
+	XXX_unrecognized []byte `json:"-"`
+}
+
+func (this *Encrypted) Reset()         { *this = Encrypted{} }
+func (this *Encrypted) String() string { return proto.CompactTextString(this) }
+func (*Encrypted) ProtoMessage()       {}
+
+func (this *Encrypted) GetKey() []byte {
+	if this != nil {
+		return this.Key
+	}
+	return nil
+}
+
+func (this *Encrypted) GetData() []byte {
+	if this != nil {
+		return this.Data
+	}
+	return nil
+}
+
+type PublicKey struct {
+	N                []byte `protobuf:"bytes,1,req,name=n" json:"n,omitempty"`
+	E                *int64 `protobuf:"varint,2,req,name=e" json:"e,omitempty"`
+	XXX_unrecognized []byte `json:"-"`
+}
+
+func (this *PublicKey) Reset()         { *this = PublicKey{} }
+func (this *PublicKey) String() string { return proto.CompactTextString(this) }
+func (*PublicKey) ProtoMessage()       {}
+
+func (this *PublicKey) GetN() []byte {
+	if this != nil {
+		return this.N
+	}
+	return nil
+}
+
+func (this *PublicKey) GetE() int64 {
+	if this != nil && this.E != nil {
+		return *this.E
+	}
+	return 0
+}
+
+type PrivateKey struct {
+	D                []byte   `protobuf:"bytes,1,req,name=d" json:"d,omitempty"`
+	Primes           [][]byte `protobuf:"bytes,2,rep,name=primes" json:"primes,omitempty"`
+	XXX_unrecognized []byte   `json:"-"`
+}
+
+func (this *PrivateKey) Reset()         { *this = PrivateKey{} }
+func (this *PrivateKey) String() string { return proto.CompactTextString(this) }
+func (*PrivateKey) ProtoMessage()       {}
+
+func (this *PrivateKey) GetD() []byte {
+	if this != nil {
+		return this.D
+	}
+	return nil
+}
+
 func init() {
 }

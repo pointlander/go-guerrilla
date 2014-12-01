@@ -9,3 +9,18 @@ message email {
 	required string mail = 6;
 	required string address = 7;
 }
+
+message encrypted {
+	required bytes key = 1;
+	required bytes data = 2;
+}
+
+message public_key {
+	required bytes n = 1;
+	required int64 e = 2;
+}
+
+message private_key {
+	required bytes d = 1;
+	repeated bytes primes = 2;
+}

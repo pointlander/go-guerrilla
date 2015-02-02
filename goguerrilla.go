@@ -67,14 +67,16 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
+	//"github.com/boltdb/bolt"
 	"github.com/garyburd/redigo/redis"
+	"github.com/pointlander/go-guerrilla/protocol"
+	//"github.com/gogo/protobuf"
 	"github.com/sloonz/go-iconv"
 	"github.com/sloonz/go-qprintable"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -125,7 +127,7 @@ var timeout time.Duration
 var allowedHosts = make(map[string]bool, 15)
 var sem chan int // currently active clients
 var emails_db *leveldb.DB
-var emails_id uint64
+var emails_id protocol.EmailId
 
 var SaveMailChan chan *Client // workers for saving mail
 // defaults. Overwrite any of these in the configure() function which loads them from a json file
@@ -144,7 +146,7 @@ func init() {
 		"MYSQL_PASS":             "ok",
 		"MYSQL_DB":               "gmail_mail",
 		"GM_MAIL_TABLE":          "new_mail",
-		"GSTMP_LISTEN_INTERFACE": "0.0.0.0:25",
+		"GSTMP_LISTEN_INTERFACE": "127.0.0.1:25",
 		"GSMTP_PUB_KEY":          usr.HomeDir + "/.go-guerrilla/ssl-cert.pem",
 		"GSMTP_PRV_KEY":          usr.HomeDir + "/.go-guerrilla/ssl-cert.key",
 		"GM_ALLOWED_HOSTS":       "guerrillamail.de,guerrillamailblock.com",
@@ -165,22 +167,23 @@ type redisClient struct {
 }
 
 func logln(level int, s string) {
-
-	if gConfig["GSMTP_VERBOSE"] == "Y" {
-		fmt.Println(s)
-	}
 	if level == 2 {
 		log.Fatalf(s)
+	} else if gConfig["GSMTP_VERBOSE"] == "Y" || level == 0 {
+		fmt.Println(s)
 	}
+
 	if len(gConfig["GSMTP_LOG_FILE"]) > 0 {
 		log.Println(s)
 	}
 }
 
-func update_email_count(emails_id uint64) {
-	email_count := make([]byte, 8)
-	binary.LittleEndian.PutUint64(email_count, emails_id)
-	err := emails_db.Put([]byte("email_count"), email_count, nil)
+func update_email_count() {
+	buffer, err := proto.Marshal(&emails_id)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = emails_db.Put([]byte("email_count"), buffer, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -261,10 +264,11 @@ func configure() {
 
 		data, err := emails_db.Get([]byte("email_count"), nil)
 		if err != nil {
-			update_email_count(0)
-			emails_id = 0
+			emails_id.Timestamp = proto.Int64(time.Now().Unix())
+			emails_id.EmailId = proto.Uint64(0)
+			update_email_count()
 		} else {
-			emails_id = binary.LittleEndian.Uint64(data)
+			proto.Unmarshal(data, &emails_id)
 		}
 
 		data, err = emails_db.Get([]byte("email_public_key"), nil)
@@ -276,7 +280,8 @@ func configure() {
 
 			buffer := proto.NewBuffer(nil)
 			n := private.N.Bytes()
-			buffer.Marshal(&PublicKey{
+			buffer.Marshal(&protocol.PublicKey{
+				Timestamp: proto.Int64(time.Now().Unix()),
 				N: n,
 				E: proto.Int64(int64(private.E)),
 			})
@@ -291,7 +296,8 @@ func configure() {
 			for i, prime := range private.Primes {
 				primes[i] = prime.Bytes()
 			}
-			buffer.Marshal(&PrivateKey{
+			buffer.Marshal(&protocol.PrivateKey{
+				Timestamp: proto.Int64(time.Now().Unix()),
 				D: d,
 				Primes: primes,
 			})
@@ -402,7 +408,16 @@ func main() {
 	// Start listening for SMTP connections
 	listener, err := net.Listen("tcp", gConfig["GSTMP_LISTEN_INTERFACE"])
 	if err != nil {
-		logln(2, fmt.Sprintf("Cannot listen on port, %v", err))
+		if strings.Contains(err.Error(), "bind: permission denied") {
+			listener, err = net.Listen("tcp", "127.0.0.1:2525")
+			if err != nil {
+				logln(2, fmt.Sprintf("Cannot listen on port, %v", err))
+			} else {
+				logln(0, fmt.Sprintf("Listening on tcp %s", "127.0.0.1:2525"))
+			}
+		} else {
+			logln(2, fmt.Sprintf("Cannot listen on port, %v", err))
+		}
 	} else {
 		logln(1, fmt.Sprintf("Listening on tcp %s", gConfig["GSTMP_LISTEN_INTERFACE"]))
 	}
@@ -427,10 +442,11 @@ func main() {
 			bufout:      bufio.NewWriter(conn),
 			clientId:    clientId,
 			savedNotify: make(chan int),
-			emails_id: emails_id,
+			emails_id: *emails_id.EmailId,
 		})
-		emails_id++
-		update_email_count(emails_id)
+		*emails_id.Timestamp = time.Now().Unix()
+		*emails_id.EmailId++
+		update_email_count()
 		clientId++
 	}
 }
@@ -659,7 +675,7 @@ func saveMailLevelDB() {
 			client.savedNotify <- -1
 			continue
 		}
-		public_key_pb := &PublicKey{}
+		public_key_pb := &protocol.PublicKey{}
 		proto.Unmarshal(public_key_data, public_key_pb)
 		public_key := rsa.PublicKey {
 			N: &big.Int{},
@@ -667,7 +683,7 @@ func saveMailLevelDB() {
 		}
 		public_key.N.SetBytes(public_key_pb.N)
 
-		buffer.Marshal(&Email{
+		buffer.Marshal(&protocol.Email{
 			Id: proto.Uint64(client.emails_id),
 			Date: proto.Uint64(uint64(client.time)),
 			To: proto.String(to),
@@ -692,7 +708,7 @@ func saveMailLevelDB() {
 			log.Fatal(err)
 		}
 		encrypted_buffer := proto.NewBuffer(nil)
-		encrypted_buffer.Marshal(&Encrypted{
+		encrypted_buffer.Marshal(&protocol.Encrypted{
 			Key: key,
 			Data: data,
 		})

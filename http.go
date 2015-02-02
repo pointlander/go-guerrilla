@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	//"encoding/base64"
 	"fmt"
 	"github.com/gorilla/sessions"
 	"io"
@@ -25,11 +26,17 @@ func (m *MailServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Fatal(err)
 		}
+		w.Header().Set("Content-Type", "binary")
+		//buffer := make([]byte, base64.StdEncoding.EncodedLen(len(public_key)))
+		//base64.StdEncoding.Encode(buffer, public_key)
 		w.Write(public_key)
 	case request == "/private_key":
+		time.Sleep(time.Second)
+
 		pin, err := emails_db.Get([]byte("email_private_key_pin"), nil)
 		if err != nil {
-			log.Fatal(err)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
 		}
 
 		if ipin := r.FormValue("pin"); ipin == string(pin) {
@@ -37,6 +44,9 @@ func (m *MailServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Fatal(err)
 			}
+			w.Header().Set("Content-Type", "binary")
+			//buffer := make([]byte, base64.StdEncoding.EncodedLen(len(private_key)))
+			//base64.StdEncoding.Encode(buffer, private_key)
 			w.Write(private_key)
 
 			err = emails_db.Delete([]byte("email_private_key_pin"), nil)

@@ -1,4 +1,4 @@
-package main;
+package protocol;
 
 message email {
 	required uint64 id = 1;
@@ -10,17 +10,24 @@ message email {
 	required string address = 7;
 }
 
+message email_id {
+	required int64 timestamp = 1;
+	required uint64 email_id = 2;
+}
+
 message encrypted {
 	required bytes key = 1;
 	required bytes data = 2;
 }
 
 message public_key {
-	required bytes n = 1;
-	required int64 e = 2;
+	required int64 timestamp = 1;
+	required bytes n = 2;
+	required int64 e = 3;
 }
 
 message private_key {
-	required bytes d = 1;
-	repeated bytes primes = 2;
+	required int64 timestamp = 1;
+	required bytes d = 2;
+	repeated bytes primes = 3;
 }

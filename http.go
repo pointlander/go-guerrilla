@@ -2,14 +2,17 @@ package main
 
 import (
 	"crypto/rand"
+	"errors"
 	//"encoding/base64"
 	"fmt"
-	"github.com/gorilla/sessions"
 	"io"
 	"log"
 	"net/http"
 	"path"
 	"time"
+
+	"github.com/boltdb/bolt"
+	"github.com/gorilla/sessions"
 )
 
 type MailServer struct {
@@ -22,43 +25,21 @@ func (m *MailServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch true {
 	case request == "/public_key":
-		public_key, err := emails_db.Get([]byte("email_public_key"), nil)
-		if err != nil {
-			log.Fatal(err)
-		}
-		w.Header().Set("Content-Type", "binary")
-		//buffer := make([]byte, base64.StdEncoding.EncodedLen(len(public_key)))
-		//base64.StdEncoding.Encode(buffer, public_key)
-		w.Write(public_key)
-	case request == "/private_key":
-		time.Sleep(time.Second)
-
-		pin, err := emails_db.Get([]byte("email_private_key_pin"), nil)
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		if ipin := r.FormValue("pin"); ipin == string(pin) {
-			private_key, err := emails_db.Get([]byte("email_private_key"), nil)
-			if err != nil {
-				log.Fatal(err)
+		err := emails_db.View(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket([]byte("meta"))
+			public_key := bucket.Get([]byte("email_public_key"))
+			if public_key == nil {
+				return errors.New("public key not found")
 			}
 			w.Header().Set("Content-Type", "binary")
-			//buffer := make([]byte, base64.StdEncoding.EncodedLen(len(private_key)))
-			//base64.StdEncoding.Encode(buffer, private_key)
-			w.Write(private_key)
+			//buffer := make([]byte, base64.StdEncoding.EncodedLen(len(public_key)))
+			//base64.StdEncoding.Encode(buffer, public_key)
+			w.Write(public_key)
 
-			err = emails_db.Delete([]byte("email_private_key_pin"), nil)
-			if err != nil {
-				log.Fatal(err)
-			}
-			err = emails_db.Delete([]byte("email_private_key"), nil)
-			if err != nil {
-				log.Fatal(err)
-			}
-		} else {
-			w.WriteHeader(http.StatusUnauthorized)
+			return nil
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
 		}
 	default:
 		w.WriteHeader(http.StatusNotFound)
@@ -77,11 +58,11 @@ func start_mail_server() {
 	mail_server := &MailServer{
 		state: sessions.NewCookieStore(akey, ekey),
 	}
-	server := http.Server {
-		Addr: ":3443",
-		Handler: mail_server,
-		ReadTimeout: 10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+	server := http.Server{
+		Addr:           ":3443",
+		Handler:        mail_server,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 	server.ListenAndServeTLS(gConfig["GSMTP_PUB_KEY"], gConfig["GSMTP_PRV_KEY"])

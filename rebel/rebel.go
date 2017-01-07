@@ -1,29 +1,29 @@
 package main
 
 import (
-	"code.google.com/p/goprotobuf/proto"
 	"crypto/rsa"
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"github.com/boltdb/bolt"
-	"github.com/pointlander/go-guerrilla/protocol"
 	"io/ioutil"
 	"log"
 	"math/big"
 	"net"
 	"net/http"
 	"net/smtp"
-	"net/url"
 	"os"
 	"os/user"
 	"reflect"
 	"time"
+
+	"github.com/boltdb/bolt"
+	"github.com/golang/protobuf/proto"
+	"github.com/pointlander/go-guerrilla/protocol"
 )
 
 type Context struct {
 	client *http.Client
-	db  *bolt.DB
+	db     *bolt.DB
 }
 
 func (c *Context) Get(url string, message proto.Message) bool {
@@ -102,7 +102,7 @@ func SendMail(addr string, a smtp.Auth, from string, to []string, msg []byte) er
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		tlc := &tls.Config{
 			InsecureSkipVerify: true,
-			ServerName: host,
+			ServerName:         host,
 		}
 		if err = c.StartTLS(tlc); err != nil {
 			return err
@@ -163,14 +163,19 @@ var test = flag.Bool("test", false, "send a test message")
 func main() {
 	flag.Parse()
 
+	if *test {
+		send_test_message()
+		return
+	}
+
 	http_host := "https://localhost:3443"
 
 	usr, _ := user.Current()
 	if _, err := os.Stat(usr.HomeDir + "/.rebel"); os.IsNotExist(err) {
-		os.Mkdir(usr.HomeDir + "/.rebel", os.FileMode(0700))
+		os.Mkdir(usr.HomeDir+"/.rebel", os.FileMode(0700))
 	}
 
-	db, err := bolt.Open(usr.HomeDir + "/.rebel/base.db", 0600, nil)
+	db, err := bolt.Open(usr.HomeDir+"/.rebel/base.db", 0600, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -184,25 +189,25 @@ func main() {
 	})
 
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify : true},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	client := &http.Client{Transport: transport}
 
 	ctx := Context{
 		client: client,
-		db: db,
+		db:     db,
 	}
 
 	var key rsa.PrivateKey
 	var public_key protocol.PublicKey
-	var private_key protocol.PrivateKey
+	//var private_key protocol.PrivateKey
 
-	ctx.Get(http_host + "/public_key", &public_key)
+	ctx.Get(http_host+"/public_key", &public_key)
 	key.N = big.NewInt(0)
 	key.N.SetBytes(public_key.N)
 	key.E = int(*public_key.E)
 
-	response, err := client.PostForm(http_host + "/private_key", url.Values{"pin": {"1234"}})
+	/*response, err := client.PostForm(http_host+"/private_key", url.Values{"pin": {"1234"}})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -222,9 +227,5 @@ func main() {
 		prime := big.NewInt(0)
 		prime.SetBytes(private_key.Primes[i])
 		key.Primes[i] = prime
-	}
-
-	if *test {
-		send_test_message()
-	}
+	}*/
 }

@@ -2,16 +2,35 @@
 // source: email.proto
 // DO NOT EDIT!
 
+/*
+Package protocol is a generated protocol buffer package.
+
+It is generated from these files:
+	email.proto
+
+It has these top-level messages:
+	Email
+	EmailId
+	Encrypted
+	PublicKey
+	PrivateKey
+*/
 package protocol
 
-import proto "code.google.com/p/goprotobuf/proto"
-import json "encoding/json"
+import proto "github.com/golang/protobuf/proto"
+import fmt "fmt"
 import math "math"
 
-// Reference proto, json, and math imports to suppress error if they are not otherwise used.
+// Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
-var _ = &json.SyntaxError{}
+var _ = fmt.Errorf
 var _ = math.Inf
+
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the proto package it is being compiled against.
+// A compilation error at this line likely means your copy of the
+// proto package needs to be updated.
+const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
 type Email struct {
 	Id               *uint64 `protobuf:"varint,1,req,name=id" json:"id,omitempty"`
@@ -24,9 +43,10 @@ type Email struct {
 	XXX_unrecognized []byte  `json:"-"`
 }
 
-func (m *Email) Reset()         { *m = Email{} }
-func (m *Email) String() string { return proto.CompactTextString(m) }
-func (*Email) ProtoMessage()    {}
+func (m *Email) Reset()                    { *m = Email{} }
+func (m *Email) String() string            { return proto.CompactTextString(m) }
+func (*Email) ProtoMessage()               {}
+func (*Email) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
 func (m *Email) GetId() uint64 {
 	if m != nil && m.Id != nil {
@@ -83,9 +103,10 @@ type EmailId struct {
 	XXX_unrecognized []byte  `json:"-"`
 }
 
-func (m *EmailId) Reset()         { *m = EmailId{} }
-func (m *EmailId) String() string { return proto.CompactTextString(m) }
-func (*EmailId) ProtoMessage()    {}
+func (m *EmailId) Reset()                    { *m = EmailId{} }
+func (m *EmailId) String() string            { return proto.CompactTextString(m) }
+func (*EmailId) ProtoMessage()               {}
+func (*EmailId) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
 
 func (m *EmailId) GetTimestamp() int64 {
 	if m != nil && m.Timestamp != nil {
@@ -107,9 +128,10 @@ type Encrypted struct {
 	XXX_unrecognized []byte `json:"-"`
 }
 
-func (m *Encrypted) Reset()         { *m = Encrypted{} }
-func (m *Encrypted) String() string { return proto.CompactTextString(m) }
-func (*Encrypted) ProtoMessage()    {}
+func (m *Encrypted) Reset()                    { *m = Encrypted{} }
+func (m *Encrypted) String() string            { return proto.CompactTextString(m) }
+func (*Encrypted) ProtoMessage()               {}
+func (*Encrypted) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
 
 func (m *Encrypted) GetKey() []byte {
 	if m != nil {
@@ -132,9 +154,10 @@ type PublicKey struct {
 	XXX_unrecognized []byte `json:"-"`
 }
 
-func (m *PublicKey) Reset()         { *m = PublicKey{} }
-func (m *PublicKey) String() string { return proto.CompactTextString(m) }
-func (*PublicKey) ProtoMessage()    {}
+func (m *PublicKey) Reset()                    { *m = PublicKey{} }
+func (m *PublicKey) String() string            { return proto.CompactTextString(m) }
+func (*PublicKey) ProtoMessage()               {}
+func (*PublicKey) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
 
 func (m *PublicKey) GetTimestamp() int64 {
 	if m != nil && m.Timestamp != nil {
@@ -164,9 +187,10 @@ type PrivateKey struct {
 	XXX_unrecognized []byte   `json:"-"`
 }
 
-func (m *PrivateKey) Reset()         { *m = PrivateKey{} }
-func (m *PrivateKey) String() string { return proto.CompactTextString(m) }
-func (*PrivateKey) ProtoMessage()    {}
+func (m *PrivateKey) Reset()                    { *m = PrivateKey{} }
+func (m *PrivateKey) String() string            { return proto.CompactTextString(m) }
+func (*PrivateKey) ProtoMessage()               {}
+func (*PrivateKey) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
 
 func (m *PrivateKey) GetTimestamp() int64 {
 	if m != nil && m.Timestamp != nil {
@@ -190,4 +214,29 @@ func (m *PrivateKey) GetPrimes() [][]byte {
 }
 
 func init() {
+	proto.RegisterType((*Email)(nil), "protocol.email")
+	proto.RegisterType((*EmailId)(nil), "protocol.email_id")
+	proto.RegisterType((*Encrypted)(nil), "protocol.encrypted")
+	proto.RegisterType((*PublicKey)(nil), "protocol.public_key")
+	proto.RegisterType((*PrivateKey)(nil), "protocol.private_key")
+}
+
+func init() { proto.RegisterFile("email.proto", fileDescriptor0) }
+
+var fileDescriptor0 = []byte{
+	// 223 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x7c, 0x8f, 0xbb, 0x6e, 0xc3, 0x20,
+	0x14, 0x86, 0x15, 0x70, 0x2e, 0xfe, 0x6d, 0xf5, 0xc2, 0xc4, 0x68, 0x31, 0x54, 0x9e, 0xda, 0xa9,
+	0x53, 0x1f, 0x26, 0x22, 0xe6, 0x54, 0xa2, 0xb6, 0x03, 0xc2, 0xa4, 0x92, 0xdf, 0xbe, 0xe2, 0x24,
+	0x51, 0x97, 0xaa, 0x13, 0x1c, 0xbe, 0xff, 0xc2, 0x41, 0x43, 0xb3, 0xf5, 0xd3, 0x6b, 0x4c, 0x21,
+	0x07, 0x75, 0xe0, 0x63, 0x08, 0x93, 0x19, 0xb1, 0x65, 0xa0, 0x00, 0xe1, 0x9d, 0xde, 0x74, 0xa2,
+	0xaf, 0x54, 0x8b, 0xca, 0xd9, 0x4c, 0x5a, 0xf0, 0x04, 0x88, 0x1c, 0xb4, 0xec, 0x44, 0x5f, 0x17,
+	0xf2, 0x99, 0xc2, 0xac, 0x2b, 0x9e, 0x1e, 0xb1, 0x5f, 0x2e, 0xa7, 0x2f, 0x1a, 0xb2, 0xde, 0xde,
+	0x71, 0x09, 0xd3, 0xbb, 0x3b, 0xb6, 0xce, 0x25, 0x5a, 0x16, 0xbd, 0x2f, 0x0f, 0xe6, 0x0d, 0x07,
+	0x2e, 0x3b, 0x7a, 0xa7, 0x9e, 0x51, 0x67, 0x3f, 0xd3, 0x92, 0xed, 0x1c, 0xb9, 0x56, 0xaa, 0xa7,
+	0x5f, 0x7c, 0xad, 0x36, 0x2f, 0xa8, 0xe9, 0x3c, 0xa4, 0x35, 0x66, 0x72, 0xaa, 0x81, 0x1c, 0x69,
+	0x65, 0x6d, 0x7b, 0xfb, 0xa2, 0x65, 0x5d, 0x6b, 0xde, 0x81, 0x78, 0x39, 0x4d, 0x7e, 0x38, 0x8e,
+	0xb4, 0xfe, 0x15, 0x5d, 0x63, 0x73, 0xbe, 0x6a, 0xcb, 0x95, 0x78, 0x1b, 0x69, 0x3e, 0xd0, 0xc4,
+	0xe4, 0xbf, 0x6d, 0xa6, 0x7f, 0x7c, 0xee, 0xe6, 0x7b, 0xc0, 0x2e, 0xa6, 0x82, 0xb5, 0xec, 0x64,
+	0xdf, 0xfe, 0x04, 0x00, 0x00, 0xff, 0xff, 0x71, 0x9a, 0x33, 0x42, 0x51, 0x01, 0x00, 0x00,
 }

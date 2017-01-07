@@ -57,7 +57,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"code.google.com/p/goprotobuf/proto"
 	"compress/zlib"
 	"crypto/aes"
 	"crypto/md5"
@@ -67,21 +66,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
-	//"github.com/boltdb/bolt"
-	"github.com/garyburd/redigo/redis"
-	"github.com/pointlander/go-guerrilla/protocol"
-	//"github.com/gogo/protobuf"
-	"github.com/sloonz/go-iconv"
-	"github.com/sloonz/go-qprintable"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/ziutek/mymysql/autorc"
-	_ "github.com/ziutek/mymysql/godrv"
 	"io"
 	"io/ioutil"
 	"log"
@@ -96,6 +87,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/boltdb/bolt"
+	"github.com/garyburd/redigo/redis"
+	"github.com/golang/protobuf/proto"
+	"github.com/pointlander/go-guerrilla/protocol"
+	"github.com/sloonz/go-iconv"
+	"github.com/sloonz/go-qprintable"
+	"github.com/ziutek/mymysql/autorc"
+	_ "github.com/ziutek/mymysql/godrv"
 )
 
 type Client struct {
@@ -117,7 +117,6 @@ type Client struct {
 	kill_time   int64
 	errors      int
 	clientId    int64
-	emails_id   uint64
 	savedNotify chan int
 }
 
@@ -126,12 +125,21 @@ var max_size int // max email DATA size
 var timeout time.Duration
 var allowedHosts = make(map[string]bool, 15)
 var sem chan int // currently active clients
-var emails_db *leveldb.DB
-var emails_id protocol.EmailId
+var emails_db *bolt.DB
 
 var SaveMailChan chan *Client // workers for saving mail
 // defaults. Overwrite any of these in the configure() function which loads them from a json file
 var gConfig map[string]string
+
+func itob(i uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, i)
+	return b
+}
+
+func btoi(b []byte) uint64 {
+	return binary.BigEndian.Uint64(b)
+}
 
 func init() {
 	usr, _ := user.Current()
@@ -156,7 +164,7 @@ func init() {
 		"NGINX_AUTH":             "127.0.0.1:8025", // If using Nginx proxy, ip and port to serve Auth requsts
 		"SGID":                   "1008",           // group id
 		"SUID":                   "1008",           // user id, from /etc/passwd
-		"LEVELDB":		  "N",		    // Y or N
+		"LEVELDB":                "N",              // Y or N
 	}
 }
 
@@ -178,17 +186,6 @@ func logln(level int, s string) {
 	}
 }
 
-func update_email_count() {
-	buffer, err := proto.Marshal(&emails_id)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = emails_db.Put([]byte("email_count"), buffer, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
 func configure() {
 	var configFile, verbose, iface string
 	usr, _ := user.Current()
@@ -200,7 +197,7 @@ func configure() {
 	flag.Parse()
 
 	if _, err := os.Stat(usr.HomeDir + "/.go-guerrilla"); os.IsNotExist(err) {
-		os.Mkdir(usr.HomeDir + "/.go-guerrilla", os.FileMode(0700))
+		os.Mkdir(usr.HomeDir+"/.go-guerrilla", os.FileMode(0700))
 	}
 
 	// load in the config.
@@ -256,66 +253,73 @@ func configure() {
 	}
 
 	if gConfig["LEVELDB"] == "Y" {
-		db, err := leveldb.OpenFile(usr.HomeDir + "/.go-guerrilla/email.db", nil)
+		db, err := bolt.Open(usr.HomeDir+"/.go-guerrilla/email.db", 0600, nil)
 		if err != nil {
-			log.Fatalln("Could not open leveldb")
+			log.Fatal(err)
 		}
 		emails_db = db
 
-		data, err := emails_db.Get([]byte("email_count"), nil)
+		err = db.Update(func(tx *bolt.Tx) error {
+			_, err := tx.CreateBucketIfNotExists([]byte("inbox"))
+			if err != nil {
+				return fmt.Errorf("create bucket: %s", err)
+			}
+
+			bucket, err := tx.CreateBucketIfNotExists([]byte("meta"))
+			if err != nil {
+				return fmt.Errorf("create bucket: %s", err)
+			}
+
+			publicKey := bucket.Get([]byte("email_public_key"))
+			if publicKey == nil {
+				private, err := rsa.GenerateKey(rand.Reader, 1024)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				buffer := proto.NewBuffer(nil)
+				n := private.N.Bytes()
+				buffer.Marshal(&protocol.PublicKey{
+					Timestamp: proto.Int64(time.Now().Unix()),
+					N:         n,
+					E:         proto.Int64(int64(private.E)),
+				})
+				err = bucket.Put([]byte("email_public_key"), buffer.Bytes())
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				buffer = proto.NewBuffer(nil)
+				d := private.D.Bytes()
+				primes := make([][]byte, len(private.Primes))
+				for i, prime := range private.Primes {
+					primes[i] = prime.Bytes()
+				}
+				buffer.Marshal(&protocol.PrivateKey{
+					Timestamp: proto.Int64(time.Now().Unix()),
+					D:         d,
+					Primes:    primes,
+				})
+				file, err := os.Create("private.key")
+				if err != nil {
+					log.Fatal(err)
+				}
+				_, err = file.Write(buffer.Bytes())
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+
+			return nil
+		})
 		if err != nil {
-			emails_id.Timestamp = proto.Int64(time.Now().Unix())
-			emails_id.EmailId = proto.Uint64(0)
-			update_email_count()
-		} else {
-			proto.Unmarshal(data, &emails_id)
+			log.Fatal(err)
 		}
 
-		data, err = emails_db.Get([]byte("email_public_key"), nil)
-		if err != nil {
-			private, err := rsa.GenerateKey(rand.Reader, 1024)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			buffer := proto.NewBuffer(nil)
-			n := private.N.Bytes()
-			buffer.Marshal(&protocol.PublicKey{
-				Timestamp: proto.Int64(time.Now().Unix()),
-				N: n,
-				E: proto.Int64(int64(private.E)),
-			})
-			err = emails_db.Put([]byte("email_public_key"), buffer.Bytes(), nil)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			buffer.Reset()
-			d := private.D.Bytes()
-			primes := make([][]byte, len(private.Primes))
-			for i, prime := range private.Primes {
-				primes[i] = prime.Bytes()
-			}
-			buffer.Marshal(&protocol.PrivateKey{
-				Timestamp: proto.Int64(time.Now().Unix()),
-				D: d,
-				Primes: primes,
-			})
-			err = emails_db.Put([]byte("email_private_key"), buffer.Bytes(), nil)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			err = emails_db.Put([]byte("email_private_key_pin"), []byte("1234"), nil)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-
-		close_signal := make(chan os.Signal, 1)
-		signal.Notify(close_signal, os.Interrupt, os.Kill)
+		closeSignal := make(chan os.Signal, 1)
+		signal.Notify(closeSignal, os.Interrupt, os.Kill)
 		go func() {
-			for _ = range close_signal {
+			for _ = range closeSignal {
 				emails_db.Close()
 				os.Exit(0)
 			}
@@ -343,14 +347,14 @@ func configure() {
 			Subject: pkix.Name{
 				Organization: []string{"Acme Co"},
 			},
-			NotBefore: before,
-			NotAfter: after,
-			KeyUsage: x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			NotBefore:             before,
+			NotAfter:              after,
+			KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 			BasicConstraintsValid: true,
 		}
 
-		for h, _ := range allowedHosts {
+		for h := range allowedHosts {
 			if ip := net.ParseIP(h); ip != nil {
 				template.IPAddresses = append(template.IPAddresses, ip)
 			} else {
@@ -375,13 +379,11 @@ func configure() {
 
 		keyOut, err := os.OpenFile(gConfig["GSMTP_PRV_KEY"], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
-			log.Print("failed to open %v for writing:", gConfig["GSMTP_PRV_KEY"], err)
+			log.Printf("failed to open %v for writing: %v", gConfig["GSMTP_PRV_KEY"], err)
 		}
 		pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(private)})
 		keyOut.Close()
 	}
-
-
 
 	return
 }
@@ -434,6 +436,7 @@ func main() {
 		}
 		logln(1, fmt.Sprintf(" There are now "+strconv.Itoa(runtime.NumGoroutine())+" serving goroutines"))
 		sem <- 1 // Wait for active queue to drain.
+
 		go handleClient(&Client{
 			conn:        conn,
 			address:     conn.RemoteAddr().String(),
@@ -442,11 +445,7 @@ func main() {
 			bufout:      bufio.NewWriter(conn),
 			clientId:    clientId,
 			savedNotify: make(chan int),
-			emails_id: *emails_id.EmailId,
 		})
-		*emails_id.Timestamp = time.Now().Unix()
-		*emails_id.EmailId++
-		update_email_count()
 		clientId++
 	}
 }
@@ -669,55 +668,69 @@ func saveMailLevelDB() {
 			to = user + "@" + gConfig["GM_PRIMARY_MAIL_HOST"]
 		}
 
-		public_key_data, err := emails_db.Get([]byte("email_public_key"), nil)
+		err := emails_db.Update(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket([]byte("meta"))
+			public_key_data := bucket.Get([]byte("email_public_key"))
+			if public_key_data == nil {
+				return errors.New("public key not found")
+			}
+			public_key_pb := &protocol.PublicKey{}
+			proto.Unmarshal(public_key_data, public_key_pb)
+			public_key := rsa.PublicKey{
+				N: &big.Int{},
+				E: int(*public_key_pb.E),
+			}
+			public_key.N.SetBytes(public_key_pb.N)
+
+			bucket = tx.Bucket([]byte("inbox"))
+			id, err := bucket.NextSequence()
+			if err != nil {
+				return err
+			}
+			buffer.Marshal(&protocol.Email{
+				Id:      proto.Uint64(id),
+				Date:    proto.Uint64(uint64(client.time)),
+				To:      proto.String(to),
+				From:    proto.String(client.mail_from),
+				Subject: proto.String(client.subject),
+				Mail:    proto.String(client.data),
+				Address: proto.String(client.address),
+			})
+
+			key, data := make([]byte, 32), buffer.Bytes()
+			_, err = rand.Read(key)
+			if err != nil {
+				return err
+			}
+			cipher, err := aes.NewCipher(key)
+			if err != nil {
+				return err
+			}
+			cipher.Encrypt(data, data)
+			key, err = rsa.EncryptPKCS1v15(rand.Reader, &public_key, key)
+			if err != nil {
+				return err
+			}
+			encrypted_buffer := proto.NewBuffer(nil)
+			encrypted_buffer.Marshal(&protocol.Encrypted{
+				Key:  key,
+				Data: data,
+			})
+
+			err = bucket.Put(itob(id), encrypted_buffer.Bytes())
+			if err != nil {
+				logln(1, fmt.Sprintf("Error writing to emails LevelDB: %v", err))
+			}
+			buffer.Reset()
+
+			return nil
+		})
 		if err != nil {
-			logln(1, "can't save email: no public key")
 			client.savedNotify <- -1
+			logln(1, fmt.Sprintf("can't save email: %v", err))
 			continue
 		}
-		public_key_pb := &protocol.PublicKey{}
-		proto.Unmarshal(public_key_data, public_key_pb)
-		public_key := rsa.PublicKey {
-			N: &big.Int{},
-			E: int(*public_key_pb.E),
-		}
-		public_key.N.SetBytes(public_key_pb.N)
 
-		buffer.Marshal(&protocol.Email{
-			Id: proto.Uint64(client.emails_id),
-			Date: proto.Uint64(uint64(client.time)),
-			To: proto.String(to),
-			From: proto.String(client.mail_from),
-			Subject: proto.String(client.subject),
-			Mail: proto.String(client.data),
-			Address: proto.String(client.address),
-		})
-
-		key, data := make([]byte, 32), buffer.Bytes()
-		_, err = rand.Read(key)
-		if err != nil {
-			log.Fatal(err)
-		}
-		cipher, err := aes.NewCipher(key)
-		if err != nil {
-			log.Fatal(err)
-		}
-		cipher.Encrypt(data, data)
-		key, err = rsa.EncryptPKCS1v15(rand.Reader, &public_key, key)
-		if err != nil {
-			log.Fatal(err)
-		}
-		encrypted_buffer := proto.NewBuffer(nil)
-		encrypted_buffer.Marshal(&protocol.Encrypted{
-			Key: key,
-			Data: data,
-		})
-
-		err = emails_db.Put([]byte(fmt.Sprintf("email_%v", client.emails_id)), encrypted_buffer.Bytes(), nil)
-		if err != nil {
-			logln(1, fmt.Sprintf("Error writing to emails LevelDB: %v", err))
-		}
-		buffer.Reset()
 		client.savedNotify <- 1
 		fmt.Println("email saved")
 	}

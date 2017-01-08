@@ -96,6 +96,7 @@ import (
 	"github.com/sloonz/go-qprintable"
 	"github.com/ziutek/mymysql/autorc"
 	_ "github.com/ziutek/mymysql/godrv"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Client struct {
@@ -126,6 +127,7 @@ var timeout time.Duration
 var allowedHosts = make(map[string]bool, 15)
 var sem chan int // currently active clients
 var emails_db *bolt.DB
+var privateKey = proto.NewBuffer(nil)
 
 var SaveMailChan chan *Client // workers for saving mail
 // defaults. Overwrite any of these in the configure() function which loads them from a json file
@@ -289,25 +291,37 @@ func configure() {
 					log.Fatal(err)
 				}
 
-				buffer = proto.NewBuffer(nil)
+				var password string
+				for {
+					reader := bufio.NewReader(os.Stdin)
+					fmt.Print("Enter password:")
+					password, _ = reader.ReadString('\n')
+					fmt.Print("Verify password:")
+					passwordCopy, _ := reader.ReadString('\n')
+					if len(password) > 0 && password == passwordCopy {
+						break
+					}
+					fmt.Println("Passwords don't match")
+				}
+				hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+				if err != nil {
+					log.Fatal(err)
+				}
+				err = bucket.Put([]byte("password"), hashedPassword)
+				if err != nil {
+					log.Fatal(err)
+				}
+
 				d := private.D.Bytes()
 				primes := make([][]byte, len(private.Primes))
 				for i, prime := range private.Primes {
 					primes[i] = prime.Bytes()
 				}
-				buffer.Marshal(&protocol.PrivateKey{
+				privateKey.Marshal(&protocol.PrivateKey{
 					Timestamp: proto.Int64(time.Now().Unix()),
 					D:         d,
 					Primes:    primes,
 				})
-				file, err := os.Create("private.key")
-				if err != nil {
-					log.Fatal(err)
-				}
-				_, err = file.Write(buffer.Bytes())
-				if err != nil {
-					log.Fatal(err)
-				}
 			}
 
 			return nil

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rsa"
 	"crypto/tls"
 	"flag"
@@ -26,7 +27,7 @@ type Context struct {
 	db     *bolt.DB
 }
 
-func (c *Context) Get(url string, message proto.Message) bool {
+func (c *Context) Get(url string, message proto.Message, password string) bool {
 	var data []byte
 	var fresh bool
 
@@ -58,6 +59,9 @@ func (c *Context) Get(url string, message proto.Message) bool {
 		}
 		if timestamp != "" {
 			request.Header.Add("If-Modified-Since", timestamp)
+		}
+		if password != "" {
+			request.SetBasicAuth("user", password)
 		}
 		response, err := c.client.Do(request)
 		if err != nil {
@@ -170,6 +174,10 @@ func main() {
 
 	http_host := "https://localhost:3443"
 
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("Enter password:")
+	password, _ := reader.ReadString('\n')
+
 	usr, _ := user.Current()
 	if _, err := os.Stat(usr.HomeDir + "/.rebel"); os.IsNotExist(err) {
 		os.Mkdir(usr.HomeDir+"/.rebel", os.FileMode(0700))
@@ -200,26 +208,14 @@ func main() {
 
 	var key rsa.PrivateKey
 	var public_key protocol.PublicKey
-	//var private_key protocol.PrivateKey
+	var private_key protocol.PrivateKey
 
-	ctx.Get(http_host+"/public_key", &public_key)
+	ctx.Get(http_host+"/public_key", &public_key, "")
 	key.N = big.NewInt(0)
 	key.N.SetBytes(public_key.N)
 	key.E = int(*public_key.E)
 
-	/*response, err := client.PostForm(http_host+"/private_key", url.Values{"pin": {"1234"}})
-	if err != nil {
-		log.Fatal(err)
-	}
-	data, err := ioutil.ReadAll(response.Body)
-	response.Body.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = proto.Unmarshal(data, &private_key)
-	if err != nil {
-		log.Fatal(err)
-	}
+	ctx.Get(http_host+"/private_key", &private_key, password)
 	key.D = big.NewInt(0)
 	key.Primes = make([]*big.Int, len(private_key.Primes))
 	key.D.SetBytes(private_key.D)
@@ -227,5 +223,5 @@ func main() {
 		prime := big.NewInt(0)
 		prime.SetBytes(private_key.Primes[i])
 		key.Primes[i] = prime
-	}*/
+	}
 }

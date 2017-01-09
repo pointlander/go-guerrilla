@@ -36,21 +36,19 @@ func (m *MailServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return errors.New("authentication failed")
 		}
-		var hashedPassword []byte
-		emails_db.View(func(tx *bolt.Tx) error {
+		return emails_db.View(func(tx *bolt.Tx) error {
 			bucket := tx.Bucket([]byte("meta"))
-			hashedPassword = bucket.Get([]byte("password"))
+			hashedPassword := bucket.Get([]byte("password"))
+			if hashedPassword == nil {
+				return errors.New("authentication failed")
+			}
+			err := bcrypt.CompareHashAndPassword(hashedPassword, []byte(password))
+			if err != nil {
+				return errors.New("authentication failed")
+			}
+
 			return nil
 		})
-		if hashedPassword == nil {
-			return errors.New("authentication failed")
-		}
-		err := bcrypt.CompareHashAndPassword(hashedPassword, []byte(password))
-		if err != nil {
-			return errors.New("authentication failed")
-		}
-
-		return nil
 	}
 
 	switch true {

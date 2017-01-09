@@ -670,7 +670,6 @@ func responseWrite(client *Client) (err error) {
 
 func saveMailLevelDB() {
 	var to string
-	buffer := proto.NewBuffer(nil)
 
 	for {
 		client := <-SaveMailChan
@@ -697,7 +696,7 @@ func saveMailLevelDB() {
 			}
 			public_key.N.SetBytes(public_key_pb.N)
 
-			bucket = tx.Bucket([]byte("inbox"))
+			bucket, buffer := tx.Bucket([]byte("inbox")), proto.NewBuffer(nil)
 			id, err := bucket.NextSequence()
 			if err != nil {
 				return err
@@ -736,7 +735,6 @@ func saveMailLevelDB() {
 			if err != nil {
 				logln(1, fmt.Sprintf("Error writing to emails LevelDB: %v", err))
 			}
-			buffer.Reset()
 
 			return nil
 		})

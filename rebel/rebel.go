@@ -35,7 +35,11 @@ func (c *Context) Get(url string, message proto.Message, password string) bool {
 
 	c.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("cache"))
-		data = bucket.Get([]byte(url))
+		value := bucket.Get([]byte(url))
+		if value != nil {
+			data = make([]byte, len(value))
+			copy(data, value)
+		}
 		return nil
 	})
 

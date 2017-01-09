@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"crypto/aes"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"flag"
@@ -154,7 +156,7 @@ var db *bolt.DB
 
 func send_test_message() {
 	smtp_host := "localhost:2525"
-	err := SendMail(smtp_host, nil, "andrew@localhost", []string{"andrew@localhost"}, []byte("hello world\n.\n"))
+	err := SendMail(smtp_host, nil, "andrew@localhost", []string{"andrew@localhost"}, []byte("Subject: test message\nhello world\n.\n"))
 	if err != nil {
 		log.Fatal(err)
 	} else {
@@ -162,7 +164,12 @@ func send_test_message() {
 	}
 }
 
-var test = flag.Bool("test", false, "send a test message")
+var (
+	test  = flag.Bool("test", false, "send a test message")
+	host  = flag.String("host", "localhost", "the host to connect to")
+	index = flag.Int64("index", -1, "view emails")
+	view  = flag.Int64("view", -1, "view email")
+)
 
 func main() {
 	flag.Parse()
@@ -172,7 +179,7 @@ func main() {
 		return
 	}
 
-	http_host := "https://localhost:3443"
+	http_host := fmt.Sprintf("https://%v:3443", *host)
 
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("Enter password:")
@@ -223,5 +230,81 @@ func main() {
 		prime := big.NewInt(0)
 		prime.SetBytes(private_key.Primes[i])
 		key.Primes[i] = prime
+	}
+
+	if *index >= 0 {
+		var emails protocol.InboxResponse
+		request, err := http.NewRequest("GET", fmt.Sprintf("%v/inbox?page=%v", http_host, *index), nil)
+		request.SetBasicAuth("user", password)
+		response, err := client.Do(request)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if response.StatusCode == http.StatusOK {
+			data, err := ioutil.ReadAll(response.Body)
+			response.Body.Close()
+			if err != nil {
+				log.Fatal(err)
+			}
+			err = proto.Unmarshal(data, &emails)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			for _, email := range emails.Emails {
+				key, err := rsa.DecryptPKCS1v15(rand.Reader, &key, email.Key)
+				if err != nil {
+					log.Fatal(err)
+				}
+				cipher, err := aes.NewCipher(key)
+				if err != nil {
+					log.Fatal(err)
+				}
+				cipher.Decrypt(email.Data, email.Data)
+				decrypted := protocol.Email{}
+				err = proto.Unmarshal(email.Data, &decrypted)
+				if err != nil {
+					log.Fatal(err)
+				}
+				fmt.Printf("%v: %v\n", *decrypted.Id, *decrypted.Subject)
+			}
+		}
+	}
+
+	if *view >= 0 {
+		var email protocol.Encrypted
+		request, err := http.NewRequest("GET", fmt.Sprintf("%v/inbox/%v", http_host, *view), nil)
+		request.SetBasicAuth("user", password)
+		response, err := client.Do(request)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if response.StatusCode == http.StatusOK {
+			data, err := ioutil.ReadAll(response.Body)
+			response.Body.Close()
+			if err != nil {
+				log.Fatal(err)
+			}
+			err = proto.Unmarshal(data, &email)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			key, err := rsa.DecryptPKCS1v15(rand.Reader, &key, email.Key)
+			if err != nil {
+				log.Fatal(err)
+			}
+			cipher, err := aes.NewCipher(key)
+			if err != nil {
+				log.Fatal(err)
+			}
+			cipher.Decrypt(email.Data, email.Data)
+			decrypted := protocol.Email{}
+			err = proto.Unmarshal(email.Data, &decrypted)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Printf(*decrypted.Mail)
+		}
 	}
 }

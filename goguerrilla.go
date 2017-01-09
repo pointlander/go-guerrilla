@@ -127,7 +127,7 @@ var timeout time.Duration
 var allowedHosts = make(map[string]bool, 15)
 var sem chan int // currently active clients
 var emails_db *bolt.DB
-var privateKey = proto.NewBuffer(nil)
+var privateKey *proto.Buffer
 
 var SaveMailChan chan *Client // workers for saving mail
 // defaults. Overwrite any of these in the configure() function which loads them from a json file
@@ -312,6 +312,7 @@ func configure() {
 					log.Fatal(err)
 				}
 
+				privateKey = proto.NewBuffer(nil)
 				d := private.D.Bytes()
 				primes := make([][]byte, len(private.Primes))
 				for i, prime := range private.Primes {

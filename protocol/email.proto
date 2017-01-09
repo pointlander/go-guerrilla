@@ -20,6 +20,10 @@ message encrypted {
 	required bytes data = 2;
 }
 
+message inbox_response {
+	repeated encrypted emails = 1;
+}
+
 message public_key {
 	required int64 timestamp = 1;
 	required bytes n = 2;

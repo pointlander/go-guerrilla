@@ -17,11 +17,14 @@ import (
 	"os"
 	"os/user"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/golang/protobuf/proto"
+	"github.com/jaytaylor/html2text"
 	"github.com/pointlander/go-guerrilla/protocol"
+	goemail "github.com/veqryn/go-email/email"
 )
 
 type Context struct {
@@ -270,7 +273,8 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				fmt.Printf("%v: %v\n", *decrypted.Id, *decrypted.Subject)
+				fmt.Printf("%v: %v %v %v\n\n", *decrypted.Id, *decrypted.Subject,
+					*decrypted.From, *decrypted.To)
 			}
 		}
 	}
@@ -308,7 +312,35 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Printf(*decrypted.Mail)
+
+			process := func(mediaType string, body []byte) {
+				fmt.Println(mediaType)
+				if mediaType == "text/plain" {
+					fmt.Println(string(body))
+				} else if mediaType == "text/html" {
+					text, err := html2text.FromString(string(body))
+					if err != nil {
+						log.Fatal(err)
+					}
+					fmt.Println(text)
+				}
+			}
+			message, err := goemail.ParseMessage(strings.NewReader(*decrypted.Mail))
+			if err != nil {
+				log.Fatal(err)
+			}
+			if message.HasBody() {
+				mediaType, _, _ := message.Header.ContentType()
+				process(mediaType, message.Body)
+			} else {
+				for _, part := range message.MessagesAll() {
+					mediaType, _, err := part.Header.ContentType()
+					if err != nil {
+						log.Fatal(err)
+					}
+					process(mediaType, part.Body)
+				}
+			}
 		}
 	}
 }

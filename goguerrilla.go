@@ -188,15 +188,27 @@ func logln(level int, s string) {
 	}
 }
 
-func configure() {
+func configure() bool {
 	var configFile, verbose, iface string
+	var client, test bool
 	usr, _ := user.Current()
 	log.SetOutput(os.Stdout)
 	// parse command line arguments
 	flag.StringVar(&configFile, "config", "goguerrilla.conf", "Path to the configuration file")
 	flag.StringVar(&verbose, "v", "n", "Verbose, [y | n] ")
 	flag.StringVar(&iface, "if", "", "Interface and port to listen on, eg. 127.0.0.1:2525 ")
+	flag.BoolVar(&client, "client", false, "Client mode")
+	flag.BoolVar(&test, "test", false, "Test mode")
 	flag.Parse()
+
+	if client {
+		EmailClient()
+		return true
+	}
+
+	if test {
+		TestServer()
+	}
 
 	if _, err := os.Stat(usr.HomeDir + "/.go-guerrilla"); os.IsNotExist(err) {
 		os.Mkdir(usr.HomeDir+"/.go-guerrilla", os.FileMode(0700))
@@ -400,11 +412,14 @@ func configure() {
 		keyOut.Close()
 	}
 
-	return
+	return false
 }
 
 func main() {
-	configure()
+	if configure() {
+		return
+	}
+
 	cert, err := tls.LoadX509KeyPair(gConfig["GSMTP_PUB_KEY"], gConfig["GSMTP_PRV_KEY"])
 	if err != nil {
 		logln(2, fmt.Sprintf("There was a problem with loading the certificate: %s", err))

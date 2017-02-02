@@ -208,6 +208,7 @@ func configure() bool {
 
 	if test {
 		TestServer()
+		return true
 	}
 
 	if _, err := os.Stat(usr.HomeDir + "/.go-guerrilla"); os.IsNotExist(err) {
@@ -456,7 +457,7 @@ func main() {
 	var clientId int64
 	clientId = 1
 
-	go start_mail_server()
+	go startMailServer()
 
 	for {
 		conn, err := listener.Accept()

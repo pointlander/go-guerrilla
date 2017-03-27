@@ -7,9 +7,7 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
-	"github.com/golang/protobuf/proto"
 	"github.com/julienschmidt/httprouter"
-	"github.com/pointlander/go-guerrilla/protocol"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -51,7 +49,6 @@ func routeInbox(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		}
 	}
 
-	response := &protocol.InboxResponse{}
 	err := emails_db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("inbox"))
 		last, cursor := bucket.Sequence(), bucket.Cursor()
@@ -59,25 +56,16 @@ func routeInbox(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		if key == nil {
 			return errors.New("invalid key")
 		}
-		cp, encrypted := make([]byte, len(value)), &protocol.Encrypted{}
-		copy(cp, value)
-		err := proto.Unmarshal(cp, encrypted)
-		if err != nil {
-			return err
-		}
-		response.Emails = append(response.Emails, encrypted)
+		w.Header().Set("Content-Type", "binary")
+		w.Write(itob(uint64(len(value))))
+		w.Write(value)
 		for c := 0; c < 9; c++ {
 			key, value = cursor.Prev()
 			if key == nil {
 				break
 			}
-			cp, encrypted = make([]byte, len(value)), &protocol.Encrypted{}
-			copy(cp, value)
-			err = proto.Unmarshal(cp, encrypted)
-			if err != nil {
-				return err
-			}
-			response.Emails = append(response.Emails, encrypted)
+			w.Write(itob(uint64(len(value))))
+			w.Write(value)
 		}
 
 		return nil
@@ -86,15 +74,6 @@ func routeInbox(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-
-	data, err := proto.Marshal(response)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	w.Header().Set("Content-Type", "binary")
-	w.Write(data)
 }
 
 func routeInboxSingular(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {

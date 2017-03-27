@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/big"
@@ -124,42 +125,57 @@ func (c *Context) Get(url string, message proto.Message, password string) bool {
 }
 
 func (c *Context) Index(i int) {
-	var emails protocol.InboxResponse
 	request, err := http.NewRequest("GET", fmt.Sprintf("%v/inbox?page=%v", c.host, i), nil)
+	if err != nil {
+		log.Panic(err)
+	}
 	request.SetBasicAuth("user", c.password)
+
 	response, err := c.client.Do(request)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
-	if response.StatusCode == http.StatusOK {
-		data, err := ioutil.ReadAll(response.Body)
-		response.Body.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = proto.Unmarshal(data, &emails)
-		if err != nil {
-			log.Fatal(err)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return
+	}
+
+	size, email, decrypted := make([]byte, 8), protocol.Encrypted{}, protocol.Email{}
+	for {
+		n, err := io.ReadFull(response.Body, size)
+		if n == 0 {
+			break
+		} else if err != nil {
+			log.Panic(err)
 		}
 
-		for _, email := range emails.Emails {
-			key, err := rsa.DecryptPKCS1v15(rand.Reader, &c.key, email.Key)
-			if err != nil {
-				log.Fatal(err)
-			}
-			cipher, err := aes.NewCipher(key)
-			if err != nil {
-				log.Fatal(err)
-			}
-			cipher.Decrypt(email.Data, email.Data)
-			decrypted := protocol.Email{}
-			err = proto.Unmarshal(email.Data, &decrypted)
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Printf("%v: %v %v %v\n\n", *decrypted.Id, *decrypted.Subject,
-				*decrypted.From, *decrypted.To)
+		buffer := make([]byte, btoi(size))
+		_, err = io.ReadFull(response.Body, buffer)
+		if err != nil {
+			log.Panic(err)
 		}
+
+		err = proto.Unmarshal(buffer, &email)
+		if err != nil {
+			log.Panic(err)
+		}
+
+		key, err := rsa.DecryptPKCS1v15(rand.Reader, &c.key, email.Key)
+		if err != nil {
+			log.Panic(err)
+		}
+		cipher, err := aes.NewCipher(key)
+		if err != nil {
+			log.Panic(err)
+		}
+		cipher.Decrypt(email.Data, email.Data)
+
+		err = proto.Unmarshal(email.Data, &decrypted)
+		if err != nil {
+			log.Panic(err)
+		}
+		fmt.Printf("%v: %v %v %v\n\n", *decrypted.Id, *decrypted.Subject,
+			*decrypted.From, *decrypted.To)
 	}
 }
 

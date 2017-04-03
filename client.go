@@ -73,7 +73,7 @@ func (c *Context) Get(url string, message proto.Message, password string) bool {
 	if data != nil {
 		err := proto.Unmarshal(data, message)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 
 		value := reflect.ValueOf(message).Elem()
@@ -87,7 +87,7 @@ func (c *Context) Get(url string, message proto.Message, password string) bool {
 	if data == nil || timestamp != "" {
 		request, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 		if timestamp != "" {
 			request.Header.Add("If-Modified-Since", timestamp)
@@ -97,14 +97,14 @@ func (c *Context) Get(url string, message proto.Message, password string) bool {
 		}
 		response, err := c.client.Do(request)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 		if response.StatusCode == http.StatusOK {
 			fresh = true
 			data, err = ioutil.ReadAll(response.Body)
 			response.Body.Close()
 			if err != nil {
-				log.Fatal(err)
+				log.Panic(err)
 			}
 			err = c.db.Update(func(tx *bolt.Tx) error {
 				bucket := tx.Bucket([]byte("cache"))
@@ -112,11 +112,11 @@ func (c *Context) Get(url string, message proto.Message, password string) bool {
 				return err
 			})
 			if err != nil {
-				log.Fatal(err)
+				log.Panic(err)
 			}
 			err = proto.Unmarshal(data, message)
 			if err != nil {
-				log.Fatal(err)
+				log.Panic(err)
 			}
 		}
 	}
@@ -185,32 +185,32 @@ func (c *Context) View(i int) {
 	request.SetBasicAuth("user", c.password)
 	response, err := c.client.Do(request)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 	if response.StatusCode == http.StatusOK {
 		data, err := ioutil.ReadAll(response.Body)
 		response.Body.Close()
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 		err = proto.Unmarshal(data, &email)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 
 		key, err := rsa.DecryptPKCS1v15(rand.Reader, &c.key, email.Key)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 		cipher, err := aes.NewCipher(key)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 		cipher.Decrypt(email.Data, email.Data)
 		decrypted := protocol.Email{}
 		err = proto.Unmarshal(email.Data, &decrypted)
 		if err != nil {
-			log.Fatal(err)
+			log.Panic(err)
 		}
 
 		process := func(mediaType string, body []byte) {
@@ -220,14 +220,16 @@ func (c *Context) View(i int) {
 			} else if mediaType == "text/html" {
 				text, err := html2text.FromString(string(body))
 				if err != nil {
-					log.Fatal(err)
+					log.Panic(err)
 				}
 				fmt.Println(text)
 			}
 		}
 		message, err := goemail.ParseMessage(strings.NewReader(*decrypted.Mail))
 		if err != nil {
-			log.Fatal(err)
+			//log.Panic(err)
+			fmt.Print(*decrypted.Mail)
+			return
 		}
 		if message.HasBody() {
 			mediaType, _, _ := message.Header.ContentType()
@@ -236,7 +238,7 @@ func (c *Context) View(i int) {
 			for _, part := range message.MessagesAll() {
 				mediaType, _, err := part.Header.ContentType()
 				if err != nil {
-					log.Fatal(err)
+					log.Panic(err)
 				}
 				process(mediaType, part.Body)
 			}
@@ -306,7 +308,7 @@ func TestServer() {
 	smtp_host := "localhost:2525"
 	err := SendMail(smtp_host, nil, "andrew@localhost", []string{"andrew@localhost"}, []byte("Subject: test message\nhello world\n.\n"))
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	} else {
 		fmt.Println("message sent")
 	}
@@ -320,7 +322,7 @@ func EmailClient() {
 
 	db, err := bolt.Open(usr.HomeDir+"/.go-guerrilla/client.db", 0600, nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 	defer db.Close()
 	db.Update(func(tx *bolt.Tx) error {
@@ -343,7 +345,7 @@ func EmailClient() {
 
 	rl, err := readline.New("> ")
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 	defer rl.Close()
 	reader := bufio.NewReader(os.Stdin)
@@ -376,7 +378,7 @@ func EmailClient() {
 			}
 			i, err := strconv.Atoi(parts[1])
 			if err != nil {
-				log.Fatal(err)
+				log.Panic(err)
 			}
 			ctx.Index(i)
 		case "view":
@@ -386,7 +388,7 @@ func EmailClient() {
 			}
 			i, err := strconv.Atoi(parts[1])
 			if err != nil {
-				log.Fatal(err)
+				log.Panic(err)
 			}
 			ctx.View(i)
 		case "exit":

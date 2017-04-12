@@ -16,6 +16,7 @@ import (
 	"net/smtp"
 	"os"
 	"os/user"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -328,11 +329,12 @@ func TestServer() {
 
 func EmailClient() {
 	usr, _ := user.Current()
-	if _, err := os.Stat(usr.HomeDir + "/.go-guerrilla"); os.IsNotExist(err) {
-		os.Mkdir(usr.HomeDir+"/.go-guerrilla", os.FileMode(0700))
+	dir := filepath.Join(usr.HomeDir, ".go-guerrilla")
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		os.Mkdir(dir, os.FileMode(0700))
 	}
 
-	db, err := bolt.Open(usr.HomeDir+"/.go-guerrilla/client.db", 0600, nil)
+	db, err := bolt.Open(filepath.Join(dir, "client.db"), 0600, nil)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -356,6 +358,7 @@ func EmailClient() {
 	}
 
 	shell := ishell.New()
+	shell.SetHistoryPath(filepath.Join(dir, "history.txt"))
 
 	shell.AddCmd(&ishell.Cmd{
 		Name: "connect",

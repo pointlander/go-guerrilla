@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/rand"
 	"crypto/rsa"
@@ -123,7 +124,7 @@ func (c *Context) Get(url string, message proto.Message, password string) bool {
 	return fresh
 }
 
-func (c *Context) Index(i int, ic *ishell.Context) {
+func (c *Context) Index(i int) string {
 	request, err := http.NewRequest("GET", fmt.Sprintf("%v/inbox?page=%v", c.host, i), nil)
 	if err != nil {
 		log.Panic(err)
@@ -136,10 +137,11 @@ func (c *Context) Index(i int, ic *ishell.Context) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return
+		return ""
 	}
 
-	size, email, decrypted := make([]byte, 8), protocol.Encrypted{}, protocol.Email{}
+	size, email, decrypted, out :=
+		make([]byte, 8), protocol.Encrypted{}, protocol.Email{}, bytes.Buffer{}
 	for {
 		n, err := io.ReadFull(response.Body, size)
 		if n == 0 {
@@ -173,12 +175,14 @@ func (c *Context) Index(i int, ic *ishell.Context) {
 		if err != nil {
 			log.Panic(err)
 		}
-		ic.Printf("%v: %v %v %v\n\n", *decrypted.Id, *decrypted.Subject,
+		fmt.Fprintf(&out, "%v: %v %v %v\n\n", *decrypted.Id, *decrypted.Subject,
 			*decrypted.From, *decrypted.To)
 	}
+
+	return out.String()
 }
 
-func (c *Context) View(i int, ic *ishell.Context) {
+func (c *Context) View(i int) string {
 	var email protocol.Encrypted
 	request, err := http.NewRequest("GET", fmt.Sprintf("%v/inbox/%v", c.host, i), nil)
 	if err != nil {
@@ -191,6 +195,7 @@ func (c *Context) View(i int, ic *ishell.Context) {
 		log.Panic(err)
 	}
 	if response.StatusCode == http.StatusOK {
+		out := bytes.Buffer{}
 		data, err := ioutil.ReadAll(response.Body)
 		response.Body.Close()
 		if err != nil {
@@ -217,22 +222,22 @@ func (c *Context) View(i int, ic *ishell.Context) {
 		}
 
 		process := func(mediaType string, body []byte) {
-			ic.Println(mediaType)
+			fmt.Fprintln(&out, mediaType)
 			if mediaType == "text/plain" {
-				ic.Println(string(body))
+				fmt.Fprintln(&out, string(body))
 			} else if mediaType == "text/html" {
 				text, err := html2text.FromString(string(body))
 				if err != nil {
 					log.Panic(err)
 				}
-				ic.Println(text)
+				fmt.Fprintln(&out, text)
 			}
 		}
 		message, err := goemail.ParseMessage(strings.NewReader(*decrypted.Mail))
 		if err != nil {
 			//log.Panic(err)
-			ic.Print(*decrypted.Mail)
-			return
+			fmt.Fprint(&out, *decrypted.Mail)
+			return out.String()
 		}
 		if message.HasBody() {
 			mediaType, _, _ := message.Header.ContentType()
@@ -246,7 +251,11 @@ func (c *Context) View(i int, ic *ishell.Context) {
 				process(mediaType, part.Body)
 			}
 		}
+
+		return out.String()
 	}
+
+	return ""
 }
 
 func SendMail(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
@@ -375,7 +384,8 @@ func EmailClient() {
 			if err != nil {
 				log.Panic(err)
 			}
-			ctx.Index(i, c)
+			out := ctx.Index(i)
+			c.ShowPaged(out)
 		},
 	})
 
@@ -391,7 +401,8 @@ func EmailClient() {
 			if err != nil {
 				log.Panic(err)
 			}
-			ctx.View(i, c)
+			out := ctx.View(i)
+			c.ShowPaged(out)
 		},
 	})
 

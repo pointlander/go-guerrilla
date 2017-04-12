@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"crypto/aes"
 	"crypto/rand"
 	"crypto/rsa"
@@ -21,8 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abiosoft/ishell"
 	"github.com/boltdb/bolt"
-	"github.com/chzyer/readline"
 	"github.com/golang/protobuf/proto"
 	"github.com/jaytaylor/html2text"
 	"github.com/pointlander/go-guerrilla/protocol"
@@ -124,7 +123,7 @@ func (c *Context) Get(url string, message proto.Message, password string) bool {
 	return fresh
 }
 
-func (c *Context) Index(i int) {
+func (c *Context) Index(i int, ic *ishell.Context) {
 	request, err := http.NewRequest("GET", fmt.Sprintf("%v/inbox?page=%v", c.host, i), nil)
 	if err != nil {
 		log.Panic(err)
@@ -174,15 +173,19 @@ func (c *Context) Index(i int) {
 		if err != nil {
 			log.Panic(err)
 		}
-		fmt.Printf("%v: %v %v %v\n\n", *decrypted.Id, *decrypted.Subject,
+		ic.Printf("%v: %v %v %v\n\n", *decrypted.Id, *decrypted.Subject,
 			*decrypted.From, *decrypted.To)
 	}
 }
 
-func (c *Context) View(i int) {
+func (c *Context) View(i int, ic *ishell.Context) {
 	var email protocol.Encrypted
 	request, err := http.NewRequest("GET", fmt.Sprintf("%v/inbox/%v", c.host, i), nil)
+	if err != nil {
+		log.Panic(err)
+	}
 	request.SetBasicAuth("user", c.password)
+
 	response, err := c.client.Do(request)
 	if err != nil {
 		log.Panic(err)
@@ -214,21 +217,21 @@ func (c *Context) View(i int) {
 		}
 
 		process := func(mediaType string, body []byte) {
-			fmt.Println(mediaType)
+			ic.Println(mediaType)
 			if mediaType == "text/plain" {
-				fmt.Println(string(body))
+				ic.Println(string(body))
 			} else if mediaType == "text/html" {
 				text, err := html2text.FromString(string(body))
 				if err != nil {
 					log.Panic(err)
 				}
-				fmt.Println(text)
+				ic.Println(text)
 			}
 		}
 		message, err := goemail.ParseMessage(strings.NewReader(*decrypted.Mail))
 		if err != nil {
 			//log.Panic(err)
-			fmt.Print(*decrypted.Mail)
+			ic.Print(*decrypted.Mail)
 			return
 		}
 		if message.HasBody() {
@@ -343,56 +346,54 @@ func EmailClient() {
 		db:     db,
 	}
 
-	rl, err := readline.New("> ")
-	if err != nil {
-		log.Panic(err)
-	}
-	defer rl.Close()
-	reader := bufio.NewReader(os.Stdin)
+	shell := ishell.New()
 
-	for {
-		line, err := rl.Readline()
-		if err != nil {
-			break
-		}
-
-		parts := strings.Split(line, " ")
-		if len(parts) == 0 {
-			continue
-		}
-
-		switch parts[0] {
-		case "connect":
-			if len(parts) != 2 {
-				fmt.Println("index <host>")
-				break
+	shell.AddCmd(&ishell.Cmd{
+		Name: "connect",
+		Help: "connect to an email server",
+		Func: func(c *ishell.Context) {
+			if len(c.Args) != 1 {
+				c.Println("connect <host>")
+				return
 			}
-			ctx.host = fmt.Sprintf("https://%v:3443", parts[1])
-			fmt.Print("Enter password:")
-			ctx.password, _ = reader.ReadString('\n')
+			ctx.host = fmt.Sprintf("https://%v:3443", c.Args[0])
+			c.Print("Enter password: ")
+			ctx.password = c.ReadPassword() + "\n"
 			ctx.Connect()
-		case "index":
-			if len(parts) != 2 {
-				fmt.Println("index <page number>")
-				break
+		},
+	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name: "index",
+		Help: "index of emails",
+		Func: func(c *ishell.Context) {
+			if len(c.Args) != 1 {
+				c.Println("index <page number>")
+				return
 			}
-			i, err := strconv.Atoi(parts[1])
+			i, err := strconv.Atoi(c.Args[0])
 			if err != nil {
 				log.Panic(err)
 			}
-			ctx.Index(i)
-		case "view":
-			if len(parts) != 2 {
-				fmt.Println("view <email id>")
-				break
+			ctx.Index(i, c)
+		},
+	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name: "view",
+		Help: "view email",
+		Func: func(c *ishell.Context) {
+			if len(c.Args) != 1 {
+				c.Println("view <email id>")
+				return
 			}
-			i, err := strconv.Atoi(parts[1])
+			i, err := strconv.Atoi(c.Args[0])
 			if err != nil {
 				log.Panic(err)
 			}
-			ctx.View(i)
-		case "exit":
-			return
-		}
-	}
+			ctx.View(i, c)
+		},
+	})
+
+	shell.Start()
 }

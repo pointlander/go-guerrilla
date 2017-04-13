@@ -98,6 +98,7 @@ import (
 	"github.com/ziutek/mymysql/autorc"
 	_ "github.com/ziutek/mymysql/godrv"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/scrypt"
 )
 
 type Client struct {
@@ -327,15 +328,35 @@ func configure() bool {
 				}
 
 				privateKey = proto.NewBuffer(nil)
+				privateKeyData := proto.NewBuffer(nil)
 				d := private.D.Bytes()
 				primes := make([][]byte, len(private.Primes))
 				for i, prime := range private.Primes {
 					primes[i] = prime.Bytes()
 				}
-				privateKey.Marshal(&protocol.PrivateKey{
+				privateKeyData.Marshal(&protocol.PrivateKey{
+					D:      d,
+					Primes: primes,
+				})
+
+				data, salt := privateKeyData.Bytes(), make([]byte, 8)
+				_, err = rand.Read(salt)
+				if err != nil {
+					log.Fatal(err)
+				}
+				key, err := scrypt.Key([]byte(password), salt, 16384, 8, 1, 32)
+				if err != nil {
+					log.Fatal(err)
+				}
+				cipher, err := aes.NewCipher(key)
+				if err != nil {
+					return err
+				}
+				cipher.Encrypt(data, data)
+				privateKey.Marshal(&protocol.PasswordEncrypted{
 					Timestamp: proto.Int64(time.Now().Unix()),
-					D:         d,
-					Primes:    primes,
+					Salt:      salt,
+					Data:      data,
 				})
 			}
 

@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/scrypt"
+
 	"github.com/abiosoft/ishell"
 	"github.com/boltdb/bolt"
 	"github.com/golang/protobuf/proto"
@@ -46,7 +48,22 @@ func (c *Context) Connect() {
 	c.key.E = int(*public.E)
 
 	var private protocol.PrivateKey
-	c.Get(c.host+"/private_key", &private, c.password)
+	var encrypted protocol.PasswordEncrypted
+	c.Get(c.host+"/private_key", &encrypted, c.password)
+	key, err := scrypt.Key([]byte(c.password), encrypted.Salt, 16384, 8, 1, 32)
+	if err != nil {
+		log.Panic(err)
+	}
+	cipher, err := aes.NewCipher(key)
+	if err != nil {
+		log.Panic(err)
+	}
+	cipher.Decrypt(encrypted.Data, encrypted.Data)
+	err = proto.Unmarshal(encrypted.Data, &private)
+	if err != nil {
+		log.Panic(err)
+	}
+
 	c.key.D = big.NewInt(0)
 	c.key.Primes = make([]*big.Int, len(private.Primes))
 	c.key.D.SetBytes(private.D)

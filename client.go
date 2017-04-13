@@ -26,6 +26,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/golang/protobuf/proto"
 	"github.com/jaytaylor/html2text"
+	press "github.com/pointlander/compress"
 	"github.com/pointlander/go-guerrilla/protocol"
 	goemail "github.com/veqryn/go-email/email"
 )
@@ -172,7 +173,11 @@ func (c *Context) Index(i int) string {
 		}
 		cipher.Decrypt(email.Data, email.Data)
 
-		err = proto.Unmarshal(email.Data, &decrypted)
+		input, uncompressed :=
+			bytes.NewReader(email.Data[8:]), make([]byte, btoi(email.Data[:8]))
+		press.Mark1Decompress16(input, uncompressed)
+
+		err = proto.Unmarshal(uncompressed, &decrypted)
 		if err != nil {
 			log.Panic(err)
 		}
@@ -216,8 +221,13 @@ func (c *Context) View(i int) string {
 			log.Panic(err)
 		}
 		cipher.Decrypt(email.Data, email.Data)
+
+		input, uncompressed :=
+			bytes.NewReader(email.Data[8:]), make([]byte, btoi(email.Data[:8]))
+		press.Mark1Decompress16(input, uncompressed)
+
 		decrypted := protocol.Email{}
-		err = proto.Unmarshal(email.Data, &decrypted)
+		err = proto.Unmarshal(uncompressed, &decrypted)
 		if err != nil {
 			log.Panic(err)
 		}

@@ -91,6 +91,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/garyburd/redigo/redis"
 	"github.com/golang/protobuf/proto"
+	press "github.com/pointlander/compress"
 	"github.com/pointlander/go-guerrilla/protocol"
 	"github.com/sloonz/go-iconv"
 	"github.com/sloonz/go-qprintable"
@@ -727,7 +728,14 @@ func saveMailLevelDB() {
 				Address: proto.String(client.address),
 			})
 
-			key, data := make([]byte, 32), buffer.Bytes()
+			compressed, encoded := bytes.Buffer{}, buffer.Bytes()
+			_, err = compressed.Write(itob(uint64(len(encoded))))
+			if err != nil {
+				return err
+			}
+			press.Mark1Compress16(encoded, &compressed)
+
+			key, data := make([]byte, 32), compressed.Bytes()
 			_, err = rand.Read(key)
 			if err != nil {
 				return err

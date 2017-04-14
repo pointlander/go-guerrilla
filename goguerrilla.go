@@ -91,6 +91,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/garyburd/redigo/redis"
 	"github.com/golang/protobuf/proto"
+	geoip2 "github.com/oschwald/geoip2-golang"
 	press "github.com/pointlander/compress"
 	"github.com/pointlander/go-guerrilla/protocol"
 	"github.com/sloonz/go-iconv"
@@ -130,6 +131,7 @@ var allowedHosts = make(map[string]bool, 15)
 var sem chan int // currently active clients
 var emails_db *bolt.DB
 var privateKey *proto.Buffer
+var geoip *geoip2.Reader
 
 var SaveMailChan chan *Client // workers for saving mail
 // defaults. Overwrite any of these in the configure() function which loads them from a json file
@@ -365,6 +367,8 @@ func configure() bool {
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		geoip, _ = geoip2.Open(usr.HomeDir + "/.go-guerrilla/GeoLite2-City.mmdb")
 
 		closeSignal := make(chan os.Signal, 1)
 		signal.Notify(closeSignal, os.Interrupt, os.Kill)
@@ -739,7 +743,7 @@ func saveMailLevelDB() {
 			if err != nil {
 				return err
 			}
-			buffer.Marshal(&protocol.Email{
+			email := protocol.Email{
 				Id:      proto.Uint64(id),
 				Date:    proto.Uint64(uint64(client.time)),
 				To:      proto.String(to),
@@ -747,7 +751,22 @@ func saveMailLevelDB() {
 				Subject: proto.String(client.subject),
 				Mail:    proto.String(client.data),
 				Address: proto.String(client.address),
-			})
+			}
+
+			if geoip != nil {
+				address := client.address
+				sep := strings.LastIndex(address, ":")
+				if sep >= 0 {
+					address = address[:sep]
+				}
+				ip := net.ParseIP(address)
+				if record, err := geoip.City(ip); err == nil {
+					email.Country = proto.String(record.Country.IsoCode)
+					email.City = proto.String(record.City.Names["en"])
+				}
+			}
+
+			buffer.Marshal(&email)
 
 			compressed, encoded := bytes.Buffer{}, buffer.Bytes()
 			_, err = compressed.Write(itob(uint64(len(encoded))))

@@ -8,6 +8,8 @@ message email {
 	required string subject = 5;
 	required string mail = 6;
 	required string address = 7;
+	optional string country = 8;
+	optional string city = 9;
 }
 
 message encrypted {

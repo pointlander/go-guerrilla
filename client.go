@@ -198,8 +198,8 @@ func (c *Context) Index(i int) string {
 		if err != nil {
 			log.Panic(err)
 		}
-		fmt.Fprintf(&out, "%v: %v %v %v\n\n", *decrypted.Id, *decrypted.Subject,
-			*decrypted.From, *decrypted.To)
+		fmt.Fprintf(&out, "%v: %v %v %v %v %v\n\n", *decrypted.Id, decrypted.GetCountry(),
+			decrypted.GetCity(), *decrypted.Subject, *decrypted.From, *decrypted.To)
 	}
 
 	return out.String()

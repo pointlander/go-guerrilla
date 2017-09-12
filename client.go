@@ -435,6 +435,6 @@ func EmailClient() {
 			c.ShowPaged(out)
 		},
 	})
-
 	shell.Start()
+	shell.Wait()
 }
